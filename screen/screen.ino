@@ -38,7 +38,7 @@ Pin 8 (RST)	 Arduino digital pin 6
 
 #define SCREEN_TIME 4000 //time to view screen in milli
 #define UPDATE_INTERVAL 5000
-#define WD_TIMEOUT_INTERVAL (1 * 60 * 1000)
+#define WD_TIMEOUT_INTERVAL (10 * 60 * 1000)
 const uint16_t MAGIC_CODE = 0xDE12;
 // Set up nRF24L01 radio on SPI bus plus pins 9 & 10
 
@@ -59,6 +59,12 @@ data_type_e;
 typedef enum{
   c_red=1, c_green=2, c_blue=3, c_purple=4, c_yellow=5, c_aqua=6} 
 color_type_e;
+
+typedef enum{
+    temp=1, rh=2, baro=3,soil_rh=4, light=5
+} sensor_type_e;
+
+uint8_t sensor_digits[] = {0,0xf2,0xf2,0xf4,4,5};
 
 typedef struct led_s{
   uint8_t red1;
@@ -333,8 +339,26 @@ void next_screen()
 			delay(SCREEN_TIME);
 		}
 	}
+	for(last_screen_id=0; last_screen_id< MAX_SENSORS;last_screen_id++) {
+        uint8_t type = sensors[last_screen_id].type;
+		if(type) {
+            int val = sensors[last_screen_id].val;
+            bool deci = sensor_digits[type] & 0xf0;
+            uint8_t digits = sensor_digits[type] & 0x0f;
+			LcdClear();
+			LcdString(sensors[last_screen_id].name);
+            gotoXY(0,1);
+            printDigits(val, digits,0);
+            if(deci) {
+                uint8_t deci_part = (sensors[last_screen_id].val - val)*100;
+                LcdCharacter('.');
+                printDigits(deci_part, 2,0);
+            }
+            // todo: print graph
+            delay(SCREEN_TIME);
+        }
+    }
 }
-
 void get_data_from_master()
 {
   if(!is_timeouted(last_update_time, UPDATE_INTERVAL))
