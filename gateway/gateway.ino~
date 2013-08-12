@@ -114,16 +114,16 @@ typedef struct cmd_message {
 } 
 cmd_message_t;
 
-typedef struct sensor_msg {
+typedef struct temp_rh_sensor {
   uint8_t    command;
   uint8_t   sensor_type;
   uint64_t addr;
-  float       val;
+  float       rh;
+  float       temp;
 } 
-sensor_message_t;
+temp_rh_sensor_message_t;
 
 typedef struct date_cmd {
-  uint8_t    command;
   uint16_t year;
   uint8_t month;
   uint8_t day;
@@ -192,7 +192,7 @@ bool handle_message() {
     last_screen_time = 0;
   }
   else if (cmd==date) {
-    date_cmd_t* dct = (date_cmd_t*)(data) ;
+    date_cmd_t* dct = (date_cmd_t*)(data+1) ;
     setTime(dct->hour,dct->minute,dct->second,dct->day,dct->month,dct->year);
     last_packet_recived = now();
   }
@@ -243,7 +243,6 @@ bool handle_message() {
       screens_size[id-1] = 0;
     }
   }
-
   else if (cmd==end_tx) {
     green(100);
     ret = true;
@@ -262,18 +261,14 @@ void send_sensor_data() {
   Serial.print("\t\t");
   Serial.println(temperature, 1);
 
-  sensor_message_t sensor_message;
+  temp_rh_sensor_message_t sensor_message;
   sensor_message.command = sensor_data;
-  sensor_message.sensor_type = sensor_type_e.rh;
+  sensor_message.sensor_type = SENSOR_RH_TEMP;
   sensor_message.addr = config_settings.rx_addr;
-  sensor_message.val = humidity;
+  sensor_message.rh = humidity;
+  sensor_message.temp = temperature;
   radio.stopListening();
   handle_write(&radio, (void *)&sensor_message, sizeof(sensor_message), 5);
-
-  sensor_message.sensor_type = sensor_type_e.temp;
-  sensor_message.temp = temperature;
-  handle_write(&radio, (void *)&sensor_message, sizeof(sensor_message), 5);
-
   radio.startListening();
 }
 
@@ -301,7 +296,7 @@ void setup()
   digitalWrite(A1, HIGH);
   LcdInitialise();
   LcdClear();
-  dht.setup(DHT22_PIN); // data pin 2
+  dht.setup(DHT22_PIN  ); // data pin 2
   //printf_begin();
   //printf("\n\rNokia screen receiver\n\r");
   randomSeed(analogRead(0));
