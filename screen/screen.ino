@@ -78,7 +78,7 @@ led_t;
 
 typedef struct sensor_data_s {
 	uint8_t type;
-	uint8_t name[MAX_SENSOR_NAME];
+	char name[MAX_SENSOR_NAME];
 	uint8_t hist[HISTORY_SIZE];
 	float min;
 	float max;
@@ -264,14 +264,14 @@ void send_sensor_data() {
 
   sensor_message_t sensor_message;
   sensor_message.command = sensor_data;
-  sensor_message.sensor_type = sensor_type_e.rh;
+  sensor_message.sensor_type = rh;
   sensor_message.addr = config_settings.rx_addr;
   sensor_message.val = humidity;
   radio.stopListening();
   handle_write(&radio, (void *)&sensor_message, sizeof(sensor_message), 5);
 
-  sensor_message.sensor_type = sensor_type_e.temp;
-  sensor_message.temp = temperature;
+  sensor_message.sensor_type = temp;
+  sensor_message.val = temperature;
   handle_write(&radio, (void *)&sensor_message, sizeof(sensor_message), 5);
 
   radio.startListening();

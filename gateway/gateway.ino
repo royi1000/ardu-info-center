@@ -15,7 +15,11 @@
  MOSI-11
  MISO-12
  SCK-13
-
+ ******   Ethernet  ********
+SCK 	Pin 13
+SO 	Pin 12
+SI 	Pin 11
+CS 	Pin 8
 ***************************/
 
 #define PAYLOAD_SIZE 20
