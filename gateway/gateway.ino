@@ -1,13 +1,16 @@
 #include <avr/pgmspace.h>
 #include <avr/eeprom.h>
+#include <Wire.h>
 #include <SPI.h>
 #include <EEPROM.h>
+#include <DS1307RTC.h>
 #include <Time.h>
+#include <Ethernet.h>
+#include <EthernetUdp.h>
 #include "nRF24L01.h"
 #include "RF24.h"
 #include "led.h"
 #include "rf_io.h"
-
 /*********   PINS     *******
  *******    RF24    *********
  CE-9
@@ -35,9 +38,14 @@ CS 	Pin 8
 #define WD_TIMEOUT_INTERVAL (10 * 60 * 1000)
 const uint16_t MAGIC_CODE = 0xDE12;
 // Set up nRF24L01 radio on SPI bus plus pins 9 & 10
+typedef unsigned long time_t;
 
 RF24 radio(9,10);
+
 EthernetUDP Udp; // New from IDE 1.0
+const int NTP_PACKET_SIZE= 48; // NTP time stamp is in the first 48 bytes of the message
+byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets 
+//DS1307RTC RTC;
 
 // Radio pipe addresses for the 2 nodes to communicate.
 uint64_t pipes[2] = {
@@ -78,15 +86,14 @@ unsigned int data_len = 0;
 unsigned int sound_len = 0;
 unsigned long last_packet_recived = 0;
 // byte timeServer[] = {192, 43, 244, 18}; // time.nist.gov NTP server
-byte timeServer[] = {178, 79, 160, 57};    // 0.uk.pool.ntp.org
-
+//byte timeServer[] = {178, 79, 160, 57};    // 0.uk.pool.ntp.org
+IPAddress ip(178, 79, 160, 57);
 
 typedef struct cmd_message {
   uint8_t  command;
   uint8_t dev_type;
   uint64_t addr;
-} 
-cmd_message_t;
+} cmd_message_t;
 
 typedef struct sensor_msg {
   uint8_t   command;
@@ -135,9 +142,9 @@ unsigned long sendNTPpacket(IPAddress& address)
 void get_udp_ntp_packet()
 {
 #if ARDUINO >= 100
-    Udp.read(pb, NTP_PACKET_SIZE);      // New from IDE 1.0,
+    Udp.read(packetBuffer, NTP_PACKET_SIZE);      // New from IDE 1.0,
 #else
-    Udp.readPacket(pb, NTP_PACKET_SIZE);
+    Udp.readPacket(packetBuffer, NTP_PACKET_SIZE);
 #endif 
 
     // NTP contains four timestamps with an integer part and a fraction part
@@ -146,10 +153,10 @@ void get_udp_ntp_packet()
     t1 = t2 = t3 = t4 = 0;
     for (int i=0; i< 4; i++)
     {
-      t1 = t1 << 8 | pb[16+i];      
-      t2 = t2 << 8 | pb[24+i];      
-      t3 = t3 << 8 | pb[32+i];      
-      t4 = t4 << 8 | pb[40+i];
+      t1 = t1 << 8 | packetBuffer[16+i];      
+      t2 = t2 << 8 | packetBuffer[24+i];      
+      t3 = t3 << 8 | packetBuffer[32+i];      
+      t4 = t4 << 8 | packetBuffer[40+i];
     }
 
     // part of the fractional part
@@ -157,10 +164,10 @@ void get_udp_ntp_packet()
     // which has a precision of ONE second
     // in fact one byte is sufficient for 1307
     float f1,f2,f3,f4;
-    f1 = ((long)pb[20] * 256 + pb[21]) / 65536.0;      
-    f2 = ((long)pb[28] * 256 + pb[29]) / 65536.0;      
-    f3 = ((long)pb[36] * 256 + pb[37]) / 65536.0;      
-    f4 = ((long)pb[44] * 256 + pb[45]) / 65536.0;
+    f1 = ((long)packetBuffer[20] * 256 + packetBuffer[21]) / 65536.0;      
+    f2 = ((long)packetBuffer[28] * 256 + packetBuffer[29]) / 65536.0;      
+    f3 = ((long)packetBuffer[36] * 256 + packetBuffer[37]) / 65536.0;      
+    f4 = ((long)packetBuffer[44] * 256 + packetBuffer[45]) / 65536.0;
 
     // NOTE:
     // one could use the fractional part to set the RTC more precise
@@ -192,27 +199,49 @@ void get_udp_ntp_packet()
     t4 += (3 * 3600L);     // Notice the L for long calculations!!
     t4 += 1;               // adjust the delay(1000) at begin of loop!
     if (f4 > 0.4) t4++;    // adjust fractional part, see above
-    RTC.adjust(DateTime(t4));
+    RTC.set(t4);
 }
 
 void update_ntp_time() {
-  sendNTPpacket(timeServer);
+  sendNTPpacket(ip);
   delay(1000);
   if ( Udp.available() ) {
     get_udp_ntp_packet();
   }
 }
 
+void digitalClockDisplay(){
+  // digital clock display of the time
+  Serial.print(hour());
+  printDigits(minute());
+  printDigits(second());
+  Serial.print(" ");
+  Serial.print(day());
+  Serial.print(" ");
+  Serial.print(month());
+  Serial.print(" ");
+  Serial.print(year()); 
+  Serial.println(); 
+}
 
-void send_data_to_client(cmd_message_t* msg)
+void printDigits(int digits){
+  // utility function for digital clock display: prints preceding colon and leading 0
+  Serial.print(":");
+  if(digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
+
+
+void send_data_to_client(struct cmd_message* msg)
 {
     radio.stopListening();
     radio.openWritingPipe(msg->addr);
-    msg.command = command_init_response;
-    handle_write(&radio, (void *)&message, sizeof(message), 5);
+    msg->command = command_init_response;
+    handle_write(&radio, (void *)&msg, sizeof(msg), 5);
     date_cmd_t cmd;
     cmd.command = date;
-    cmd.time = now();
+    cmd.time = RTC.get();
     handle_write(&radio, (void *)&cmd, sizeof(cmd), 5);
     for(int i=0;i<MAX_SENSORS;i++) {
       if(sensors[i].type) {
@@ -242,7 +271,7 @@ void setup()
   Serial.begin(9600);
   Serial.println("start radio");
   radio.begin();
-
+  Wire.begin();
 
   // optionally, increase the delay between retries & # of retries
   radio.setRetries(15,15);
@@ -255,6 +284,9 @@ void setup()
 
   radio.startListening();
   radio.printDetails();
+  
+  setTime(RTC.get());
+  digitalClockDisplay();
 }
 
 void get_data_from_clients()
